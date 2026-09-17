@@ -5170,6 +5170,27 @@ Hart<URV>::configIsa(std::string_view isa, bool updateMisa)
       csr->setWriteMask(fields.value_);
     }
 
+  // Make MIP/NIE bits corresponding to the S and H extensions read only zero if
+  // those extensions are not enabled. This can be over-ridden at run time by the
+  // user configuration.
+
+  URV rozBits = 0;
+  if (not isa_.isEnabled(RvExtension::S))
+    rozBits |= 0x222;  // SEIP/STIP/SSIP
+
+  if (not isa_.isEnabled(RvExtension::H))
+    rozBits |= 0x1444;  // SGEIP/VSEIP/VSTIP/VSSIP
+
+  if (not isa_.isEnabled(RvExtension::Sscofpmf))
+    rozBits |= 0x2000;  // LCOFIP
+
+  for (CsrNumber cn : { CsrNumber::MIP , CsrNumber::MIE } )
+    {
+      auto csr = csRegs_.findCsr(cn);
+      csr->setWriteMask(csr->getWriteMask() & ~rozBits);
+      csr->setPokeMask(csr->getPokeMask() & ~rozBits);
+    }
+
   return true;
 }
 
