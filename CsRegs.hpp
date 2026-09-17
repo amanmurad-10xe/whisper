@@ -2676,7 +2676,7 @@ namespace WdRiscv
     {
       auto csr = getImplementedCsr(CsrNumber::MENVCFG);
       if (not csr)
-        return 0;
+        return false;
       URV value = csr->read();
       MenvcfgFields<uint64_t> fields(value);
       return fields.bits_.SSE;
@@ -2688,7 +2688,7 @@ namespace WdRiscv
     {
       auto csr = getImplementedCsr(CsrNumber::SENVCFG);
       if (not csr)
-        return 0;
+        return false;
       URV value = csr->read();
       SenvcfgFields<uint64_t> fields(value);
       return fields.bits_.SSE;
@@ -2700,7 +2700,7 @@ namespace WdRiscv
     {
       auto csr = getImplementedCsr(CsrNumber::HENVCFG);
       if (not csr)
-        return 0;
+        return false;
       URV value = csr->read();
       HenvcfgFields<uint64_t> fields(value);
       return fields.bits_.SSE;
