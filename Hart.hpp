@@ -2102,6 +2102,10 @@ namespace WdRiscv
     bool isRvZalasr() const
     { return extensionIsEnabled(RvExtension::Zalasr); }
 
+    /// Return true if the Zilx extension (indexed integer loads) is enabled.
+    bool isRvZilx() const
+    { return extensionIsEnabled(RvExtension::Zilx); }
+
     /// Return true if the Zilsd extension (load store double in rv32) is enabled.
     bool isRvzilsd() const
     { return extensionIsEnabled(RvExtension::Zilsd); }
@@ -6558,6 +6562,11 @@ namespace WdRiscv
     void execSh_rl(const DecodedInst*);
     void execSw_rl(const DecodedInst*);
     void execSd_rl(const DecodedInst*);
+
+    // Zilx
+    template<typename LOAD_TYPE>
+    void execZilxLoad(const DecodedInst*, bool doScale, bool zextIndex); // Helper to execZilx.
+    void execZilx(const DecodedInst*);
 
     // Zimop
     void execMop_r(const DecodedInst*);
