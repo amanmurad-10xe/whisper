@@ -1335,7 +1335,7 @@
         },
         "wfi_timeout": {
             "$ref": "#/definitions/int_or_hex_string",
-            "description": "Timeout of the wfi instruction."
+            "description": "Implementation-specific bounded time limit for WFI (priv spec mstatus.TW). WFI waits this many ticks for an interrupt. If the bound expires (zero means no wait), WFI traps when TW/VTW/U-mode require a timeout."
         },
         "imsic": {
             "type": "object",

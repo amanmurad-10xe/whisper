@@ -2282,8 +2282,10 @@ namespace WdRiscv
     /// Set the max number of guest external interrupts.
     bool configGuestInterruptCount(unsigned n);
 
-    /// Set timeout of wfi instruction. A non-zero timeout will make wfi succeed
-    /// if it can succeed within a bound timeout.
+    /// Set the implementation-specific, bounded time limit for WFI (priv spec
+    /// mstatus.TW / hstatus.VTW / U-mode). WFI waits up to this many ticks for
+    /// an interrupt. If the bound expires (zero means no wait), WFI traps when
+    /// the spec requires a timeout.
     void setWfiTimeout(uint64_t t)
     { wfiTimeout_ = t; }
 
@@ -6946,7 +6948,7 @@ namespace WdRiscv
     uint64_t alarmLimit_ = ~uint64_t(0); // Timer interrupt when inst counter reaches this.
     uint64_t logStart_ = 0; // Start logging at this instruction rank.
 
-    uint64_t wfiTimeout_ = 1;  // If non-zero wfi will succeed.
+    uint64_t wfiTimeout_ = 1;  // Non-zero: implementation-specified WFI time limit.
 
     bool misalDataOk_ = true;
     bool misalHasPriority_ = true;

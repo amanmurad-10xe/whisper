@@ -12699,54 +12699,47 @@ Hart<URV>::execWfi(const DecodedInst* di)
 {
   using PM = PrivilegeMode;
   auto pm = privilegeMode();
+  bool tw = mstatus_.bits_.TW;
+  bool vtw = hstatus_.bits_.VTW;
+
+  // VU-mode with TW=0 has no bounded-time exception.
+  if (virtMode_ and pm == PM::User and not tw)
+    {
+      virtualInst(di);
+      return;
+    }
 
   if (pm == PM::Machine)
     return;
 
-  bool tw = mstatus_.bits_.TW;
-  bool vtw = hstatus_.bits_.VTW;
+  auto bound = wfiTimeout_;
+  std::string instStr;
+  while (bound-- > 0)
+    {
+      InterruptCause cause{};
+      PrivilegeMode nextMode = PrivilegeMode::Machine;
+      bool nextVirt = false, hvi = false;
+      tickTime();  // Advance time.
+      processTimerInterrupt();
+      if (isInterruptPossible(cause, nextMode, nextVirt, hvi))
+	return;  // Completed within the bound.
+    }
 
+  // Bound expired (including wfiTimeout_ == 0).
   if (tw)
     {
-      // TW is 1 and Executing in privilege less than machine: illegal unless
-      // complete in bounded time.
-      illegalInst(di);  // FIX: handle bounded time.
-      return;
+      // TW=1 in less than M: illegal unless WFI completed within the bound.
+      illegalInst(di);
     }
-
-  // TW is 0.
-
-  if (virtMode_)
+  else if (virtMode_ and pm == PM::Supervisor and vtw)
     {
-      if (pm == PM::Supervisor)
-        {
-          // Spec: In VS-mode, attempts to execute WFI when hstatus.VTW=1 and mstatus.TW=0
-          // raise a virtual-instruction exception, unless the instruction completes within an
-          // implementation-specific, bounded time.
-          if (vtw)  // TW is 0
-            {
-              // FIX: handle bounded time.
-              virtualInst(di);
-              return;
-            }
-        }
-      else if (pm == PM::User)
-        {
-          // Spec (when to raise virtual instruction):
-          //  in VU-mode, attempts to execute WFI when mstatus.TW=0
-          virtualInst(di);  // TW is 0
-          return;
-        }
+      // VS-mode, VTW=1, TW=0: virtual unless completed within the bound.
+      virtualInst(di);
     }
-
-  // Spec: When S-mode is implemented, then executing WFI in U-mode causes an
-  // illegal-instruction exception, regardless of the value of the TW bit, unless the
-  // instruction completes within an implementation-specific, bounded time limit.
-  if (pm == PM::User and isRvs() and not virtMode_)
+  else if (pm == PM::User and isRvs() and not virtMode_)
     {
-      if (wfiTimeout_ == 0)
-	illegalInst(di);
-      return;
+      // U-mode with S implemented: illegal unless completed within the bound.
+      illegalInst(di);
     }
 }
 
