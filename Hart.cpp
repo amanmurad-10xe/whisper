@@ -12709,11 +12709,7 @@ Hart<URV>::execWfi(const DecodedInst* di)
       return;
     }
 
-  if (pm == PM::Machine)
-    return;
-
   auto bound = wfiTimeout_;
-  std::string instStr;
   while (bound-- > 0)
     {
       InterruptCause cause{};
@@ -12723,9 +12719,15 @@ Hart<URV>::execWfi(const DecodedInst* di)
       processTimerInterrupt();
       if (isInterruptPossible(cause, nextMode, nextVirt, hvi))
 	return;  // Completed within the bound.
+      // M-mode: resume on a locally enabled pending interrupt even when
+      // mstatus.MIE is clear. Do not take it; the next instruction will.
+      if (pm == PM::Machine and (csRegs_.effectiveMip() & csRegs_.peekMie()))
+	return;
     }
 
-  // Bound expired (including wfiTimeout_ == 0).
+  // Bound expired (including wfiTimeout_ == 0). TW does not apply to M-mode.
+  if (pm == PM::Machine)
+    return;
   if (tw)
     {
       // TW=1 in less than M: illegal unless WFI completed within the bound.
