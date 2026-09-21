@@ -1,5 +1,5 @@
 {
-    "isa": "rv64gsu",
+    "isa": "rv64iamsu",
     "aclint": {
         "base": "0x02000000",
         "size": "0xc000",
