@@ -8231,6 +8231,8 @@ CsRegs<URV>::isStateEnabled(CsrNumber num, PrivilegeMode pm, bool vm) const
            num == CN::SITHRESHOLD or num == CN::SISTATUS or
            num == CN::STOPSI)
     rseb.bits_.ACLIC = 1;
+  else if (num == CN::HEDELEGH)
+    rseb.bits_.P1P13 = 1;
 
   uint64_t mask = rseb.value_;  // Bits that must be on in controlling *STATEEN* register.
   if (mask == 0)
