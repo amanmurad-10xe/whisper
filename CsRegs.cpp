@@ -5680,7 +5680,7 @@ CsRegs<URV>::defineStateEnableRegs()
   URV mask = 0;  // Default: nothing writable.
 
   if constexpr (sizeof(URV) == 8)
-    mask = uint64_t(0b11011111111) << 53;  // Bits 63:53
+    mask = uint64_t(0b11011110111) << 53;  // Bits 63:53
 
   defineCsr("mstateen0", CsrNumber::MSTATEEN0,  !mand, !imp, 0, mask, mask);
   defineCsr("mstateen1", CsrNumber::MSTATEEN1,  !mand, !imp, 0, 0, 0);
