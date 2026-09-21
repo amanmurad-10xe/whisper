@@ -701,6 +701,7 @@ Hart<URV>::processExtensions(bool verbose)
   enableExtension(RvExtension::Zicsr,    true /*isa_.isEnabled(RvExtension::Zicsr)*/); // Default true until we fix riscof
   enableExtension(RvExtension::Zifencei, true /*isa_.isEnabled(RvExtension::Zifencei)*/); // Default true until RTL catches up
   enableExtension(RvExtension::Zalasr,   isa_.isEnabled(RvExtension::Zalasr));
+  enableExtension(RvExtension::Zilx,     isa_.isEnabled(RvExtension::Zilx));
   enableExtension(RvExtension::Zilsd,    isa_.isEnabled(RvExtension::Zilsd));
   enableExtension(RvExtension::Zclsd,    isa_.isEnabled(RvExtension::Zclsd));
   enableExtension(RvExtension::Zvfbfa,   isa_.isEnabled(RvExtension::Zvfbfa));
@@ -5168,6 +5169,27 @@ Hart<URV>::configIsa(std::string_view isa, bool updateMisa)
       fields.bits_.ALTFMT = 1;
       csr->setPokeMask(fields.value_);
       csr->setWriteMask(fields.value_);
+    }
+
+  // Make MIP/NIE bits corresponding to the S and H extensions read only zero if
+  // those extensions are not enabled. This can be over-ridden at run time by the
+  // user configuration.
+
+  URV rozBits = 0;
+  if (not isa_.isEnabled(RvExtension::S))
+    rozBits |= 0x222;  // SEIP/STIP/SSIP
+
+  if (not isa_.isEnabled(RvExtension::H))
+    rozBits |= 0x1444;  // SGEIP/VSEIP/VSTIP/VSSIP
+
+  if (not isa_.isEnabled(RvExtension::Sscofpmf))
+    rozBits |= 0x2000;  // LCOFIP
+
+  for (CsrNumber cn : { CsrNumber::MIP , CsrNumber::MIE } )
+    {
+      auto csr = csRegs_.findCsr(cn);
+      csr->setWriteMask(csr->getWriteMask() & ~rozBits);
+      csr->setPokeMask(csr->getPokeMask() & ~rozBits);
     }
 
   return true;
@@ -11498,6 +11520,28 @@ Hart<URV>::execute(const DecodedInst* di)
       execVfwbdota_vv(di);
       return;
 
+    case InstId::lxh:
+    case InstId::lxw:
+    case InstId::lxd:
+    case InstId::lxhu:
+    case InstId::lxwu:
+    case InstId::lxsb:
+    case InstId::lxsh:
+    case InstId::lxsw:
+    case InstId::lxsd:
+    case InstId::lxsbu:
+    case InstId::lxshu:
+    case InstId::lxswu:
+    case InstId::lxsuwb:
+    case InstId::lxsuwh:
+    case InstId::lxsuww:
+    case InstId::lxsuwd:
+    case InstId::lxsuwbu:
+    case InstId::lxsuwhu:
+    case InstId::lxsuwwu:
+      execZilx(di);
+      return;
+
     case InstId::endId_:
       assert(0 && "Error: Shouldn't be able to get here");
       return;
@@ -14233,6 +14277,75 @@ Hart<URV>::execRemu(const DecodedInst* di)
   recordDivInst(di->op0(), peekIntReg(di->op0()));
 
   intRegs_.write(di->op0(), c);
+}
+
+
+template <typename URV>
+template <typename LOAD_TYPE>
+void
+Hart<URV>::execZilxLoad(const DecodedInst* di, bool doScale, bool zextIndex)
+{
+  if (not isRvZilx())
+    {
+      illegalInst(di);
+      return;
+    }
+
+  URV size = sizeof(LOAD_TYPE);
+  bool isSigned = std::is_signed_v<LOAD_TYPE>;
+  if ((zextIndex or size == 8 or (size == 4 and not isSigned)) and not isRv64())
+    {
+      illegalInst(di);
+      return;
+    }
+
+  URV index = intRegs_.read(di->op1());
+  URV base = intRegs_.read(di->op2());
+  if (zextIndex)
+    index = URV(uint32_t(index));
+
+  if (doScale)
+    index *= size;
+
+  uint64_t virtAddr = URV(base + index);
+
+  uint64_t data = 0;
+  bool ok = load<LOAD_TYPE>(di, virtAddr, data);
+
+  if (ok)
+    intRegs_.write(di->op0(), data);
+}
+
+
+template <typename URV>
+void
+Hart<URV>::execZilx(const DecodedInst* di)
+{
+  switch (di->instId())
+    {
+    case InstId::lxh:     execZilxLoad<int16_t> (di, false, false); return;
+    case InstId::lxw:     execZilxLoad<int32_t> (di, false, false); return;
+    case InstId::lxd:     execZilxLoad<uint64_t>(di, false, false); return;
+    case InstId::lxhu:    execZilxLoad<uint16_t>(di, false, false); return;
+    case InstId::lxwu:    execZilxLoad<uint32_t>(di, false, false); return;
+    case InstId::lxsb:    execZilxLoad<int8_t>  (di, true,  false); return;
+    case InstId::lxsh:    execZilxLoad<int16_t> (di, true,  false); return;
+    case InstId::lxsw:    execZilxLoad<int32_t> (di, true,  false); return;
+    case InstId::lxsd:    execZilxLoad<uint64_t>(di, true,  false); return;
+    case InstId::lxsbu:   execZilxLoad<uint8_t> (di, true,  false); return;
+    case InstId::lxshu:   execZilxLoad<uint16_t>(di, true,  false); return;
+    case InstId::lxswu:   execZilxLoad<uint32_t>(di, true,  false); return;
+    case InstId::lxsuwb:  execZilxLoad<int8_t>  (di, true,  true);  return;
+    case InstId::lxsuwh:  execZilxLoad<int16_t> (di, true,  true);  return;
+    case InstId::lxsuww:  execZilxLoad<int32_t> (di, true,  true);  return;
+    case InstId::lxsuwd:  execZilxLoad<uint64_t>(di, true,  true);  return;
+    case InstId::lxsuwbu: execZilxLoad<uint8_t> (di, true,  true);  return;
+    case InstId::lxsuwhu: execZilxLoad<uint16_t>(di, true,  true);  return;
+    case InstId::lxsuwwu: execZilxLoad<uint32_t>(di, true,  true);  return;
+    default:
+      illegalInst(di);
+      return;
+    }
 }
 
 

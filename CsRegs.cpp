@@ -4797,10 +4797,9 @@ CsRegs<URV>::defineMachineRegs()
   mask = 0x3eee;   // Bits 0, 4, 8, 14 and 15 are read-only zero.
   defineCsr("mideleg", Csrn::MIDELEG, !mand, !imp, 0, mask, mask);
 
-  // Interrupt enable: Least sig 12 bits corresponding to the 12
-  // interrupt causes are writable.
-  // TODO: SGEIE (bit 12)
-  URV mieMask = 0xfff; 
+  // By default the bits corresponding to the M/S/H interrupts are writable. This is
+  // modified at run-time based on enabled extensions and user configurations.
+  URV mieMask = 0x3eee;
   defineCsr("mie", Csrn::MIE, mand, imp, 0, mieMask, mieMask);
 
   // Initial value of 0: vectored interrupt. Mask of ~2 to make bit 1
@@ -4831,7 +4830,7 @@ CsRegs<URV>::defineMachineRegs()
 
   // MIP is read-only for CSR instructions but the bits corresponding
   // to defined interrupts are modifiable.
-  defineCsr("mip", CsrNumber::MIP, mand, imp, 0, rom, mieMask | 0x3000);
+  defineCsr("mip", CsrNumber::MIP, mand, imp, 0, rom /*write*/, mieMask /*poke*/);
 
   // Physical memory protection. Odd-numbered PMPCFG are only present
   // in 32-bit implementations.
@@ -5681,7 +5680,7 @@ CsRegs<URV>::defineStateEnableRegs()
   URV mask = 0;  // Default: nothing writable.
 
   if constexpr (sizeof(URV) == 8)
-    mask = uint64_t(0b11011111111) << 53;  // Bits 63:53
+    mask = uint64_t(0b11011110111) << 53;  // Bits 63:53
 
   defineCsr("mstateen0", CsrNumber::MSTATEEN0,  !mand, !imp, 0, mask, mask);
   defineCsr("mstateen1", CsrNumber::MSTATEEN1,  !mand, !imp, 0, 0, 0);
@@ -8232,6 +8231,8 @@ CsRegs<URV>::isStateEnabled(CsrNumber num, PrivilegeMode pm, bool vm) const
            num == CN::SITHRESHOLD or num == CN::SISTATUS or
            num == CN::STOPSI)
     rseb.bits_.ACLIC = 1;
+  else if (num == CN::HEDELEGH)
+    rseb.bits_.P1P13 = 1;
 
   uint64_t mask = rseb.value_;  // Bits that must be on in controlling *STATEEN* register.
   if (mask == 0)

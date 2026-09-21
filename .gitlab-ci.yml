@@ -196,9 +196,9 @@ snapshot-job:
     - rvsw-tools/wb --no-cpubind -n=1 --whisper ./build-Linux/whisper --sbi rvsw-snapshots/fw_jump.elf --kernel rvsw-snapshots/Image --initrd rvsw-snapshots/rvv-bench/rvv-bench.cpio --platform ascalon-rtl --append 'init=mini-init command="bin/linux/instructions/scalar/scalar" trigger_immediate=true' -- --hintops --snapshotdir rvvbench_bin-linux-instructions-scalar-scalar_snapshot
     - rvsw-tools/wb --sbi /dev/null --kernel /dev/null --platform ascalon-rtl --json > whisper.json
     - build-Linux/whisper --tohost 0x70000008 --fromhost 0x70000000 --configfile whisper.json --harts 1 --loadfrom rvvbench_bin-linux-instructions-scalar-scalar_snapshot0 | tee output.log
-    - grep -q 'add t0, t1, t2' output.log
-    - grep -q 'fmadd.d ft0, ft1, ft2, ft3' output.log
-    - grep -q 'bseti t0, t1, 13' output.log
+    - grep -q 'add t0, s4, s5' output.log
+    - grep -q 'fmadd.d ft0, fa1, fa2, fa3' output.log
+    - grep -q 'bseti t0, s4, 13' output.log
     - grep -q 'Command(s) completed, halting.' output.log
     - grep -q 'System halted' output.log
 
