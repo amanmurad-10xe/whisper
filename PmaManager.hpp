@@ -982,9 +982,10 @@ namespace WdRiscv
           // Process AMO attributes for for io/nc regions.
           if (io or not cacheable)
             {
-              if (atype == 1 or atype == 3)  // Whisper: rsrv-eventual and non-eventual are same.
+              if (atype == 1 or atype == 3)
                 {
-                  attrib |= Pma::Attrib::Rsrv;
+                  if (atype == 3)
+                    attrib |= Pma::Attrib::Rsrv;   // Whisper: rsrv-eventual and non-eventual are same.
                   attrib |= Pma::Attrib::AmoSwap;
                   attrib |= Pma::Attrib::AmoLogical;
                   attrib |= Pma::Attrib::AmoArith;
