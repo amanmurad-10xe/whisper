@@ -4311,6 +4311,8 @@ Mcm<URV>::ppoRule4(Hart<URV>& hart, const McmInstr& instrB) const
                         continue;
                       predTime = aOp.forwardTime(addr);  // Predecessor byte time
                       succTime = bOp.forwardTime(addr);
+                      if (predWrite)
+                        succTime = bOp.time_;
                       if (predTime < succTime)
                         continue;
 
