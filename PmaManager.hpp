@@ -744,6 +744,13 @@ namespace WdRiscv
       return defaultPma_;  // rwx amo rsrv idempotent misalok
     }
 
+    /// Set the PMA of the ith region to the given PMA.
+    void setRegionPma(unsigned i, Pma pma)
+    {
+      regions_.at(i).pma_ = pma;
+      onRegionsChanged();
+    }
+
     /// Return true if the given address falls in one of the valid regions defined in this
     /// manager.
     bool overlaps(uint64_t addr) const
@@ -985,11 +992,16 @@ namespace WdRiscv
               if (atype == 1 or atype == 3)
                 {
                   if (atype == 3)
-                    attrib |= Pma::Attrib::Rsrv;   // Whisper: rsrv-eventual and non-eventual are same.
-                  attrib |= Pma::Attrib::AmoSwap;
-                  attrib |= Pma::Attrib::AmoLogical;
-                  attrib |= Pma::Attrib::AmoArith;
-                  // attrib |= Pma::Attrib::AmoCas;  // Temporarily disabpled for back compat
+                    attrib |= Pma::Attrib::Rsrv; // rsrv-eventual & non-eventual same in Whisper.
+
+                  bool amoOk = io ? allowAmoInIo_ : allowAmoInNonCacheable_;
+                  if (amoOk)
+                    {
+                      attrib |= Pma::Attrib::AmoSwap;
+                      attrib |= Pma::Attrib::AmoLogical;
+                      attrib |= Pma::Attrib::AmoArith;
+                      // attrib |= Pma::Attrib::AmoCas;  // Temporarily disabpled for back compat
+                    }
                 }
               else if (atype == 2)
                 attrib |= Pma::Attrib::Rsrv;  // Whisper: rsrv-eventual and non-eventual are same.

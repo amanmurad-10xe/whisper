@@ -420,9 +420,11 @@ namespace WdRiscv
     /// Reset (to zero) all memory mapped registers.
     void resetMemoryMappedRegisters();
 
+#if 0
     /// Read a memory mapped register word.
     bool readRegister(uint64_t addr, auto& value) const
     { return pmaMgr_.readRegister(addr, value); }
+#endif
 
     /// Return memory mapped mask associated with the word containing
     /// the given address. Return all 1 if given address is not a

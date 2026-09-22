@@ -269,6 +269,10 @@ Server<URV>::pokeCommand(const WhisperMessage& req, WhisperMessage& reply, Hart<
           hart.setDeferredNmis(req.value);
         else if (req.address == WhisperSpecialResource::Seipin)
 	  hart.setSeiPin(val);
+        else if (req.address == WhisperSpecialResource::AmoInNc)
+          hart.allowAmoInNonCachable(val);
+        else if (req.address == WhisperSpecialResource::AmoInIo)
+          hart.allowAmoInIo(val);
         else
           ok = false;
         if (ok)
@@ -1031,6 +1035,8 @@ specialResourceToStr(uint64_t v)
     case WhisperSpecialResource::EffMemAttr:          return "effma";
     case WhisperSpecialResource::LastLdStAddress:     return "lastldst";
     case WhisperSpecialResource::DeferredNmis:        return "defnmi";
+    case WhisperSpecialResource::AmoInNc:             return "amoinnc";
+    case WhisperSpecialResource::AmoInIo:             return "amoinio";
     }
   return "?";
 }

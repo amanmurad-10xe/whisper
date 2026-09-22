@@ -1072,7 +1072,8 @@ Hart<URV>::reset(bool resetMemoryMappedRegs)
       pmaMgr_.clearDefaultPma();  // No access.
       pmaMgr_.enableInDefaultPma(Pma::Attrib::MisalAccFault); // Access fault on misal.
 
-      // Make sure all 64 PMA configs have associated regions.
+      // Make sure all 64 PMA configs have associated regions. Any entry not-yet defined
+      // will get an empty PMA.
       if (pmaMgr_.regionCount() < 64)
         pmaMgr_.defineRegion(64, 0, 0, Pma{});
     }
@@ -4496,6 +4497,63 @@ Hart<URV>::peekCsr(CsrNumber csrn, std::string_view field, URV& val) const
     return false;
 
   return csr->field(field, val);
+}
+
+
+template <typename URV>
+void
+Hart<URV>::syncPmamgrToPmacfg()
+{
+  using CN = CsrNumber;
+
+  for (unsigned i = 0; i < 15; ++i)
+    {
+      if (i >= pmaMgr_.regionCount())
+        continue;
+
+      auto cfgNum = csRegs_.advance(CN::PMACFG0, i);
+      URV cfgVal = 0;
+
+      if (not peekCsr(cfgNum, cfgVal))
+        continue;
+
+      if (cfgVal == 0)
+        continue;  // PMACFG was not configured.
+
+      Pma pma;
+      uint64_t mask = 0, low = 0, high = 0;
+      if (pmaMgr_.unpackPmacfg(cfgVal, low, high, mask, pma))
+        pmaMgr_.setRegionPma(i, pma);
+    }
+
+  URV savedSel = 0;  // Previous value of MISELECT.
+
+  if (not peekCsr(CN::MISELECT, savedSel))
+    return;
+
+  // Process PMA configurations 16 to 63. These are accessed with MISELECT/MIREG.
+  for (unsigned i = 16; i < 64; ++i)
+    {
+      if (i >= pmaMgr_.regionCount())
+        continue;
+
+      URV sel = URV(1) << (sizeof(URV)*8 - 1);  // Set most sig bit for custom CSR select.
+      sel = sel | URV(i);
+      if (not pokeCsr(CN::MISELECT, sel, false))
+        assert(0);
+
+      URV cfgVal = 0;
+      if (not csRegs_.readMireg(CN::MIREG, cfgVal, false))
+        assert(0);
+      
+      Pma pma;
+      uint64_t mask = 0, low = 0, high = 0;
+      if (pmaMgr_.unpackPmacfg(cfgVal, low, high, mask, pma))
+        pmaMgr_.setRegionPma(i, pma);
+    }
+
+  if (not pokeCsr(CN::MISELECT, savedSel, false))
+    assert(0);
 }
 
 
