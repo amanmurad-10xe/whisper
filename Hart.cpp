@@ -459,7 +459,7 @@ Hart<URV>::setupVirtMemCallbacks()
 
     // To write PTE after update of A/D bits we require PMA with write and atomicity
     // attributes.
-    bool ok = pma.isWrite() and (pma.isAmo() or pma.isRsrv());
+    bool ok = pma.isWrite() and pma.isRsrv();
 
     // if (mcm_ and dataCache_)
     // return dataCache_->isLineResident(addr);

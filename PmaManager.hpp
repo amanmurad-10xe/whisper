@@ -991,8 +991,7 @@ namespace WdRiscv
             {
               if (atype == 1 or atype == 3)
                 {
-                  if (atype == 3)
-                    attrib |= Pma::Attrib::Rsrv; // rsrv-eventual & non-eventual same in Whisper.
+                  // rsrv-non-eventual same as no-rsrv in Whisper. Don't add Attrib::Rsrv.
 
                   bool amoOk = io ? allowAmoInIo_ : allowAmoInNonCacheable_;
                   if (amoOk)
@@ -1003,8 +1002,6 @@ namespace WdRiscv
                       // attrib |= Pma::Attrib::AmoCas;  // Temporarily disabpled for back compat
                     }
                 }
-              else if (atype == 2)
-                attrib |= Pma::Attrib::Rsrv;  // Whisper: rsrv-eventual and non-eventual are same.
             }
         }
 
