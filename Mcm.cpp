@@ -1713,39 +1713,6 @@ Mcm<URV>::mergeBufferWrite(Hart<URV>& hart, uint64_t time, uint64_t physAddr,
 
 
 template <typename URV>
-bool
-Mcm<URV>::writeToReadForward(const MemoryOp& writeOp, MemoryOp& readOp, uint64_t& mask)
-{
-  if (mask == 0)
-    return true;  // No bytes left to forward.
-
-  if (not readOp.overlaps(writeOp))
-    return false;
-
-  unsigned count = 0; // Count of forwarded bytes
-  for (unsigned rix = 0; rix < readOp.size_ and mask != 0; ++rix)
-    {
-      uint64_t byteAddr = readOp.pa_ + rix;
-      if (not writeOp.overlaps(byteAddr))
-	continue;  // Read-op byte does not overlap write-op.
-
-      uint64_t byteMask = uint64_t(0xff) << (rix * 8);
-      if ((byteMask & mask) == 0)
-	continue;  // Byte forwarded by another instruction.
-
-      uint8_t byteVal = writeOp.rtlData_ >> (byteAddr - writeOp.pa_)*8;
-      uint64_t aligned = uint64_t(byteVal) << 8*rix;
-	
-      readOp.data_ = (readOp.data_ & ~byteMask) | aligned;
-      mask = mask & ~byteMask;
-      count++;
-    }
-
-  return count > 0;
-}
-
-
-template <typename URV>
 void
 Mcm<URV>::cancelInstr(Hart<URV>& hart, McmInstr& instr)
 {
