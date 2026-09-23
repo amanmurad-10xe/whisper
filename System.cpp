@@ -92,12 +92,12 @@ System<URV>::System(unsigned coreCount, unsigned hartsPerCore,
   auto writef = [this](uint64_t addr, unsigned size, uint64_t value) -> bool {
                   return sparseMem_->write(addr, size, value); };
 
-  auto initf = [this](uint64_t addr, const std::span<uint8_t> buffer) -> bool {
-                 return sparseMem_->initializePage(addr, buffer); };
+  auto fillf = [this](uint64_t addr, const std::span<uint8_t> buffer) -> bool {
+                  return sparseMem_->fillPage(addr, buffer); };
 
   mem.defineReadMemoryCallback(readf);
   mem.defineWriteMemoryCallback(writef);
-  mem.defineInitPageCallback(initf);
+  mem.defineFillPageCallback(fillf);
 #endif
 }
 
