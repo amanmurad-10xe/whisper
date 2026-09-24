@@ -673,6 +673,22 @@ List of of attributes: read, write, exec, amo, rsrv, idempotent, amoswap, amolog
 amoother, msial_ok, amoarithmetic, misal_accf_ault, and mag16. Mag16 sets the msialigned
 atomic granule of the region to 16.
        
+### memory_initialization_mode
+
+Memory intialization mode for the sparse memory model. A valid mode is one of "zero",
+"address", or "salt". Default is "zero". When a page is allocated by the sparse memory
+model, it is initialized according to the given mode as follows:
+
+* zero: page is intialized with zero bytes.
+
+* address: each byte of the page is initialized with the least significant eight bits
+  of the corresponding byte address.
+
+* salt: each byte of the page is initialized with hashed value of the byte address
+  combined with a salt value. The default salt value is zero. The salt value can
+  be specified by appending a colon to the salt tag followed by a number. Example
+  ``` "memory_initialization_mode" : "salt:0xabc123"```
+
 ### num_mmode_perf_regs
 Number of implemented performance counters. If specified number is n,
 then CSRs (counters) mhpmcounter3 to mhpmcounter3+n-1 are implemented

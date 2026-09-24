@@ -2282,8 +2282,10 @@ namespace WdRiscv
     /// Set the max number of guest external interrupts.
     bool configGuestInterruptCount(unsigned n);
 
-    /// Set timeout of wfi instruction. A non-zero timeout will make wfi succeed
-    /// if it can succeed within a bound timeout.
+    /// Set the implementation-specific, bounded time limit for WFI (priv spec
+    /// mstatus.TW / hstatus.VTW / U-mode). WFI waits up to this many ticks for
+    /// an interrupt. If the bound expires (zero means no wait), WFI traps when
+    /// the spec requires a timeout.
     void setWfiTimeout(uint64_t t)
     { wfiTimeout_ = t; }
 
@@ -2598,12 +2600,28 @@ namespace WdRiscv
     { pmaMgr_.invalidateEntry(ix); }
 
     /// Allow/disallow non-cachable regions to have AMO.
-    void setAllowAmoInNonCachable(bool flag)
-    { pmaMgr_.setAllowAmoInNonCacheable(flag); }
+    void allowAmoInNonCachable(bool flag)
+    {
+      pmaMgr_.setAllowAmoInNonCacheable(flag);
+      syncPmamgrToPmacfg();
+    }
 
     /// Allow/disallow IO regions to have AMO.
+    void allowAmoInIo(bool flag)
+    {
+      pmaMgr_.setAllowAmoInIo(flag);
+      syncPmamgrToPmacfg();
+    }
+
+    void setAllowAmoInNonCachable(bool flag)  // Backward compatible. 
+    { allowAmoInNonCachable(flag); } 
+
     void setAllowAmoInIo(bool flag)
-    { pmaMgr_.setAllowAmoInIo(flag); }
+    { allowAmoInIo(flag); }
+
+    /// Update the Pmamgr regions corresponding to the defined PMACFG CSRs.  This is done
+    /// whenever we change the configuration to allow/disallow AMOs in IO/NC regions.
+    void syncPmamgrToPmacfg();
 
     /// Called after a change to a PMACFG CSR to update PMA regions. Return true on
     /// success and false if num is not that of PMACFG CSR.
@@ -6946,7 +6964,7 @@ namespace WdRiscv
     uint64_t alarmLimit_ = ~uint64_t(0); // Timer interrupt when inst counter reaches this.
     uint64_t logStart_ = 0; // Start logging at this instruction rank.
 
-    uint64_t wfiTimeout_ = 1;  // If non-zero wfi will succeed.
+    uint64_t wfiTimeout_ = 1;  // Non-zero: implementation-specified WFI time limit.
 
     bool misalDataOk_ = true;
     bool misalHasPriority_ = true;

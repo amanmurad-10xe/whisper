@@ -1713,39 +1713,6 @@ Mcm<URV>::mergeBufferWrite(Hart<URV>& hart, uint64_t time, uint64_t physAddr,
 
 
 template <typename URV>
-bool
-Mcm<URV>::writeToReadForward(const MemoryOp& writeOp, MemoryOp& readOp, uint64_t& mask)
-{
-  if (mask == 0)
-    return true;  // No bytes left to forward.
-
-  if (not readOp.overlaps(writeOp))
-    return false;
-
-  unsigned count = 0; // Count of forwarded bytes
-  for (unsigned rix = 0; rix < readOp.size_ and mask != 0; ++rix)
-    {
-      uint64_t byteAddr = readOp.pa_ + rix;
-      if (not writeOp.overlaps(byteAddr))
-	continue;  // Read-op byte does not overlap write-op.
-
-      uint64_t byteMask = uint64_t(0xff) << (rix * 8);
-      if ((byteMask & mask) == 0)
-	continue;  // Byte forwarded by another instruction.
-
-      uint8_t byteVal = writeOp.rtlData_ >> (byteAddr - writeOp.pa_)*8;
-      uint64_t aligned = uint64_t(byteVal) << 8*rix;
-	
-      readOp.data_ = (readOp.data_ & ~byteMask) | aligned;
-      mask = mask & ~byteMask;
-      count++;
-    }
-
-  return count > 0;
-}
-
-
-template <typename URV>
 void
 Mcm<URV>::cancelInstr(Hart<URV>& hart, McmInstr& instr)
 {
@@ -3952,9 +3919,13 @@ Mcm<URV>::finalChecks(Hart<URV>& hart)
   for (auto tag : undrained)
     {
       const auto& instr = instrVec.at(tag);
-      if (not hasToHost or toHost != instr.virtAddr_)
-	cerr << "Warning: Hart-id=" << hart.hartId() << " tag=" << instr.tag_
-	     << " Store instruction is not drained at end of run\n";
+      if (hasToHost and toHost == instr.virtAddr_)
+        continue;
+
+      cerr << "Warning: Hart-id=" << hart.hartId() << " tag=" << instr.tag_
+           << " Store instruction is not drained at end of run\n";
+
+      // Check for incorrect store operatoin addresses.
     }
 
   return true;
@@ -4297,8 +4268,10 @@ Mcm<URV>::ppoRule4(Hart<URV>& hart, const McmInstr& instrB) const
                 }
 
               // Successor performs before predecessor -- Allow if successor is a load
-              // and there is no store from another core to the same cache line.
+              // and there is no store from another hart to the same cache line.
               bool fail = true;
+              unsigned ohx = hartIx;  // Other hart index
+              uint64_t oht = 0;  // Time of write op from other hart.
               if (bOp.isRead_)
                 {
                   fail = false;
@@ -4311,6 +4284,8 @@ Mcm<URV>::ppoRule4(Hart<URV>& hart, const McmInstr& instrB) const
                         continue;
                       predTime = aOp.forwardTime(addr);  // Predecessor byte time
                       succTime = bOp.forwardTime(addr);
+                      if (predWrite)
+                        succTime = bOp.time_;
                       if (predTime < succTime)
                         continue;
 
@@ -4330,6 +4305,8 @@ Mcm<URV>::ppoRule4(Hart<URV>& hart, const McmInstr& instrB) const
                               lineNum(op.pa_) != lineNum(addr))
                             continue;
                           fail = op.time_ >= succTime and op.time_ <= predTime;
+                          ohx = op.hartIx_;
+                          oht = op.time_;
                         }
                     }
                 }
@@ -4340,7 +4317,10 @@ Mcm<URV>::ppoRule4(Hart<URV>& hart, const McmInstr& instrB) const
                        << " tag1=" << pred.tag_ << " tag2=" << succ.tag_
                        << " fence-tag=" << fence.tag_
                        << " time1=" << predTime << " time2=" << succTime
-                       << " pa=0x" << std::hex << aOp.pa_ << std::dec << '\n';
+                       << " pa=0x" << std::hex << aOp.pa_ << std::dec;
+                  if (ohx != hartIx)
+                    cerr << " other-hart-ix=" << ohx << " other-hart-write-time=" << oht;
+                  cerr << '\n';
                   return false;
                 }
             }
@@ -4434,32 +4414,29 @@ Mcm<URV>::ppoRule5(Hart<URV>& hart, const McmInstr& instrB) const
     {
       for (auto& tag : undrained)
 	{
-	  if (tag < instrB.tag_)
-	    {
-	      const auto& instrA = instrVec.at(tag);
-	      bool hasAcquire = instrA.di_.hasAcquire();
-	      if (isTso_)
-		hasAcquire = hasAcquire or instrA.di_.isLoad() or instrA.di_.isAmo();
-      if (hasAcquire)
-	{
-	  uint64_t conflictAddr = 0;
-	  if (not ppoRule5(hart, instrA, instrB, conflictAddr))
-	    {
-	      unsigned vecBytesB = getVectorLdstByteCount(hart, instrB);
-	      cerr << "Error: PPO rule 5 failed: hart-id=" << hart.hartId()
-		   << " tag1=" << instrA.tag_ << " tag2=" << instrB.tag_;
-	      if (conflictAddr != 0)
-		cerr << std::hex << " addr=0x" << conflictAddr << std::dec;
-	      if (vecBytesB > 0 and (instrB.di_.isVectorLoad() or instrB.di_.isVectorStore()))
-		cerr << " tag2-vec-bytes=" << vecBytesB;
-	      cerr << '\n';
-	      return false;
-	    }
-	}
-	    }
-	  else
-	    break;
-	}
+          if (tag >= instrB.tag_)
+            break;
+          const auto& instrA = instrVec.at(tag);
+          bool hasAcquire = instrA.di_.hasAcquire();
+          if (isTso_)
+            hasAcquire = hasAcquire or instrA.di_.isLoad() or instrA.di_.isAmo();
+          if (hasAcquire)
+            {
+              uint64_t conflictAddr = 0;
+              if (not ppoRule5(hart, instrA, instrB, conflictAddr))
+                {
+                  unsigned vecBytesB = getVectorLdstByteCount(hart, instrB);
+                  cerr << "Error: PPO rule 5 failed: hart-id=" << hart.hartId()
+                       << " tag1=" << instrA.tag_ << " tag2=" << instrB.tag_;
+                  if (conflictAddr != 0)
+                    cerr << std::hex << " addr=0x" << conflictAddr << std::dec;
+                  if (vecBytesB > 0 and (instrB.di_.isVectorLoad() or instrB.di_.isVectorStore()))
+                    cerr << " tag2-vec-bytes=" << vecBytesB;
+                  cerr << '\n';
+                  return false;
+                }
+            }
+        }
     }
 
   auto earlyB = effectiveMinTime(hart, instrB);

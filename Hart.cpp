@@ -459,7 +459,7 @@ Hart<URV>::setupVirtMemCallbacks()
 
     // To write PTE after update of A/D bits we require PMA with write and atomicity
     // attributes.
-    bool ok = pma.isWrite() and (pma.isAmo() or pma.isRsrv());
+    bool ok = pma.isWrite() and pma.isRsrv();
 
     // if (mcm_ and dataCache_)
     // return dataCache_->isLineResident(addr);
@@ -1072,7 +1072,8 @@ Hart<URV>::reset(bool resetMemoryMappedRegs)
       pmaMgr_.clearDefaultPma();  // No access.
       pmaMgr_.enableInDefaultPma(Pma::Attrib::MisalAccFault); // Access fault on misal.
 
-      // Make sure all 64 PMA configs have associated regions.
+      // Make sure all 64 PMA configs have associated regions. Any entry not-yet defined
+      // will get an empty PMA.
       if (pmaMgr_.regionCount() < 64)
         pmaMgr_.defineRegion(64, 0, 0, Pma{});
     }
@@ -4496,6 +4497,63 @@ Hart<URV>::peekCsr(CsrNumber csrn, std::string_view field, URV& val) const
     return false;
 
   return csr->field(field, val);
+}
+
+
+template <typename URV>
+void
+Hart<URV>::syncPmamgrToPmacfg()
+{
+  using CN = CsrNumber;
+
+  for (unsigned i = 0; i < 15; ++i)
+    {
+      if (i >= pmaMgr_.regionCount())
+        continue;
+
+      auto cfgNum = csRegs_.advance(CN::PMACFG0, i);
+      URV cfgVal = 0;
+
+      if (not peekCsr(cfgNum, cfgVal))
+        continue;
+
+      if (cfgVal == 0)
+        continue;  // PMACFG was not configured.
+
+      Pma pma;
+      uint64_t mask = 0, low = 0, high = 0;
+      if (pmaMgr_.unpackPmacfg(cfgVal, low, high, mask, pma))
+        pmaMgr_.setRegionPma(i, pma);
+    }
+
+  URV savedSel = 0;  // Previous value of MISELECT.
+
+  if (not peekCsr(CN::MISELECT, savedSel))
+    return;
+
+  // Process PMA configurations 16 to 63. These are accessed with MISELECT/MIREG.
+  for (unsigned i = 16; i < 64; ++i)
+    {
+      if (i >= pmaMgr_.regionCount())
+        continue;
+
+      URV sel = URV(1) << (sizeof(URV)*8 - 1);  // Set most sig bit for custom CSR select.
+      sel = sel | URV(i);
+      if (not pokeCsr(CN::MISELECT, sel, false))
+        assert(0);
+
+      URV cfgVal = 0;
+      if (not csRegs_.readMireg(CN::MIREG, cfgVal, false))
+        assert(0);
+      
+      Pma pma;
+      uint64_t mask = 0, low = 0, high = 0;
+      if (pmaMgr_.unpackPmacfg(cfgVal, low, high, mask, pma))
+        pmaMgr_.setRegionPma(i, pma);
+    }
+
+  if (not pokeCsr(CN::MISELECT, savedSel, false))
+    assert(0);
 }
 
 
@@ -12699,54 +12757,49 @@ Hart<URV>::execWfi(const DecodedInst* di)
 {
   using PM = PrivilegeMode;
   auto pm = privilegeMode();
-
-  if (pm == PM::Machine)
-    return;
-
   bool tw = mstatus_.bits_.TW;
   bool vtw = hstatus_.bits_.VTW;
 
+  // VU-mode with TW=0 has no bounded-time exception.
+  if (virtMode_ and pm == PM::User and not tw)
+    {
+      virtualInst(di);
+      return;
+    }
+
+  auto bound = wfiTimeout_;
+  while (bound-- > 0)
+    {
+      InterruptCause cause{};
+      PrivilegeMode nextMode = PrivilegeMode::Machine;
+      bool nextVirt = false, hvi = false;
+      tickTime();  // Advance time.
+      processTimerInterrupt();
+      if (isInterruptPossible(cause, nextMode, nextVirt, hvi))
+	return;  // Completed within the bound.
+      // M-mode: resume on a locally enabled pending interrupt even when
+      // mstatus.MIE is clear. Do not take it; the next instruction will.
+      if (pm == PM::Machine and (csRegs_.effectiveMip() & csRegs_.peekMie()))
+	return;
+    }
+
+  // Bound expired (including wfiTimeout_ == 0). TW does not apply to M-mode.
+  if (pm == PM::Machine)
+    return;
   if (tw)
     {
-      // TW is 1 and Executing in privilege less than machine: illegal unless
-      // complete in bounded time.
-      illegalInst(di);  // FIX: handle bounded time.
-      return;
+      // TW=1 in less than M: illegal unless WFI completed within the bound.
+      illegalInst(di);
     }
-
-  // TW is 0.
-
-  if (virtMode_)
+  else if (virtMode_ and pm == PM::Supervisor and vtw)
     {
-      if (pm == PM::Supervisor)
-        {
-          // Spec: In VS-mode, attempts to execute WFI when hstatus.VTW=1 and mstatus.TW=0
-          // raise a virtual-instruction exception, unless the instruction completes within an
-          // implementation-specific, bounded time.
-          if (vtw)  // TW is 0
-            {
-              // FIX: handle bounded time.
-              virtualInst(di);
-              return;
-            }
-        }
-      else if (pm == PM::User)
-        {
-          // Spec (when to raise virtual instruction):
-          //  in VU-mode, attempts to execute WFI when mstatus.TW=0
-          virtualInst(di);  // TW is 0
-          return;
-        }
+      // VS-mode, VTW=1, TW=0: virtual unless completed within the bound.
+      virtualInst(di);
     }
-
-  // Spec: When S-mode is implemented, then executing WFI in U-mode causes an
-  // illegal-instruction exception, regardless of the value of the TW bit, unless the
-  // instruction completes within an implementation-specific, bounded time limit.
-  if (pm == PM::User and isRvs() and not virtMode_)
+  else if (pm == PM::User and isRvs() and not virtMode_)
     {
-      if (wfiTimeout_ == 0)
-	illegalInst(di);
-      return;
+      // U-mode with S implemented: illegal unless completed within the bound.
+      illegalInst(di);
     }
 }
 

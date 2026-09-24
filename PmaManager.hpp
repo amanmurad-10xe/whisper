@@ -744,6 +744,13 @@ namespace WdRiscv
       return defaultPma_;  // rwx amo rsrv idempotent misalok
     }
 
+    /// Set the PMA of the ith region to the given PMA.
+    void setRegionPma(unsigned i, Pma pma)
+    {
+      regions_.at(i).pma_ = pma;
+      onRegionsChanged();
+    }
+
     /// Return true if the given address falls in one of the valid regions defined in this
     /// manager.
     bool overlaps(uint64_t addr) const
@@ -982,16 +989,19 @@ namespace WdRiscv
           // Process AMO attributes for for io/nc regions.
           if (io or not cacheable)
             {
-              if (atype == 1 or atype == 3)  // Whisper: rsrv-eventual and non-eventual are same.
+              if (atype == 1 or atype == 3)
                 {
-                  attrib |= Pma::Attrib::Rsrv;
-                  attrib |= Pma::Attrib::AmoSwap;
-                  attrib |= Pma::Attrib::AmoLogical;
-                  attrib |= Pma::Attrib::AmoArith;
-                  // attrib |= Pma::Attrib::AmoCas;  // Temporarily disabpled for back compat
+                  // rsrv-non-eventual same as no-rsrv in Whisper. Don't add Attrib::Rsrv.
+
+                  bool amoOk = io ? allowAmoInIo_ : allowAmoInNonCacheable_;
+                  if (amoOk)
+                    {
+                      attrib |= Pma::Attrib::AmoSwap;
+                      attrib |= Pma::Attrib::AmoLogical;
+                      attrib |= Pma::Attrib::AmoArith;
+                      // attrib |= Pma::Attrib::AmoCas;  // Temporarily disabpled for back compat
+                    }
                 }
-              else if (atype == 2)
-                attrib |= Pma::Attrib::Rsrv;  // Whisper: rsrv-eventual and non-eventual are same.
             }
         }
 
