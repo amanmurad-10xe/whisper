@@ -3663,8 +3663,11 @@ Hart<URV>::execVcompress_vm(const DecodedInst* di)
     return;
   vecRegs_.setIthOpEmul(2, 1);  // EMUL of vs2 is 1.
 
+  // Vd cannot overlap vs1 or vs2. Vs1 cannot overlap vs2 because they have
+  // different EEWs (EEW of vs2 is 1 bits).
   if (hasDestSourceOverlap(vd, group, vs1, group) or
-      hasDestSourceOverlap(vd, group, vs2, 1) or di->isMasked() or start > 0)
+      hasDestSourceOverlap(vd, group, vs2, 1) or vs1 == vs2 or
+      di->isMasked() or start > 0)
     {
       postVecFail(di);  // Source/dest cannot overlap, must not be masked, 0 vstart.
       return;
