@@ -3919,9 +3919,13 @@ Mcm<URV>::finalChecks(Hart<URV>& hart)
   for (auto tag : undrained)
     {
       const auto& instr = instrVec.at(tag);
-      if (not hasToHost or toHost != instr.virtAddr_)
-	cerr << "Warning: Hart-id=" << hart.hartId() << " tag=" << instr.tag_
-	     << " Store instruction is not drained at end of run\n";
+      if (hasToHost and toHost == instr.virtAddr_)
+        continue;
+
+      cerr << "Warning: Hart-id=" << hart.hartId() << " tag=" << instr.tag_
+           << " Store instruction is not drained at end of run\n";
+
+      // Check for incorrect store operatoin addresses.
     }
 
   return true;

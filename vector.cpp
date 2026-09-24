@@ -3668,7 +3668,7 @@ Hart<URV>::execVcompress_vm(const DecodedInst* di)
   // different EEWs (EEW of vs2 is 1 bits).
   if (hasDestSourceOverlap(vd, groupx8, vs1, groupx8) or
       hasDestSourceOverlap(vd, groupx8, vs2, 1) or
-      (vs2 >= vs1 and vs2 <= vs1 + group) or
+      (vs2 >= vs1 and vs2 < vs1 + group) or
       di->isMasked() or start > 0)
     {
       postVecFail(di);  // Source/dest cannot overlap, must not be masked, 0 vstart.
