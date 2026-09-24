@@ -3655,18 +3655,20 @@ Hart<URV>::execVcompress_vm(const DecodedInst* di)
 
   unsigned vd = di->op0(),  vs1 = di->op1(),  vs2 = di->op2();
 
-  unsigned group = vecRegs_.groupMultiplierX8(),  start = csRegs_.peekVstart();
+  unsigned groupx8 = vecRegs_.groupMultiplierX8(),  start = csRegs_.peekVstart();
+  unsigned group = groupx8 < 8 ? 1 : groupx8 / 8;
   unsigned elems = vecRegs_.elemCount();
   ElementWidth sew = vecRegs_.elemWidth();
 
-  if (not checkVecOpsVsEmul(di, group, {vd, vs1}))
+  if (not checkVecOpsVsEmul(di, groupx8, {vd, vs1}))
     return;
   vecRegs_.setIthOpEmul(2, 1);  // EMUL of vs2 is 1.
 
   // Vd cannot overlap vs1 or vs2. Vs1 cannot overlap vs2 because they have
   // different EEWs (EEW of vs2 is 1 bits).
-  if (hasDestSourceOverlap(vd, group, vs1, group) or
-      hasDestSourceOverlap(vd, group, vs2, 1) or vs1 == vs2 or
+  if (hasDestSourceOverlap(vd, groupx8, vs1, groupx8) or
+      hasDestSourceOverlap(vd, groupx8, vs2, 1) or
+      (vs2 >= vs1 and vs2 <= vs1 + group) or
       di->isMasked() or start > 0)
     {
       postVecFail(di);  // Source/dest cannot overlap, must not be masked, 0 vstart.
@@ -3676,10 +3678,10 @@ Hart<URV>::execVcompress_vm(const DecodedInst* di)
   using EW = ElementWidth;
   switch (sew)
     {
-    case EW::Byte:  vcompress_vm<uint8_t>(vd, vs1, vs2, group, start, elems); break;
-    case EW::Half:  vcompress_vm<uint16_t>(vd, vs1, vs2, group, start, elems); break;
-    case EW::Word:  vcompress_vm<uint32_t>(vd, vs1, vs2, group, start, elems); break;
-    case EW::Word2: vcompress_vm<uint64_t>(vd, vs1, vs2, group, start, elems); break;
+    case EW::Byte:  vcompress_vm<uint8_t> (vd, vs1, vs2, groupx8, start, elems); break;
+    case EW::Half:  vcompress_vm<uint16_t>(vd, vs1, vs2, groupx8, start, elems); break;
+    case EW::Word:  vcompress_vm<uint32_t>(vd, vs1, vs2, groupx8, start, elems); break;
+    case EW::Word2: vcompress_vm<uint64_t>(vd, vs1, vs2, groupx8, start, elems); break;
     default:        postVecFail(di); return;
     }
   postVecSuccess(di);
