@@ -1495,6 +1495,16 @@ CsRegs<URV>::enableSupervisorMode(bool flag)
     for (auto csrn : { CN::SIEH, CN::SIPH, CN::MEDELEGH, CN::MIDELEGH } )
       enableCsr(csrn, flag);
 
+  // SBE (bit 4 of MSTATUSH in RV32) is read-only zero if S-mode is not supported.
+  if (rv32_ and not flag)
+    {
+      auto& msh = regs_.at(size_t(CN::MSTATUSH));
+      URV sbe = URV(1) << 4;
+      msh.write(msh.read() & ~sbe);
+      msh.setWriteMask(msh.getWriteMask() & ~sbe);
+      msh.setPokeMask(msh.getPokeMask() & ~sbe);
+    }
+
   if (hyperEnabled_)
     {
       for (auto csrn : { CN::VSSTATUS, CN::VSIE, CN::VSTVEC, CN::VSSCRATCH,
@@ -1551,6 +1561,7 @@ CsRegs<URV>::enableSupervisorMode(bool flag)
   updateSmcdeleg();             // To activate/deactivate SCOUNTINHIBIT.
   enableSscofpmf(cofEnabled_);  // To activate/deactivate SCOUNTOVF.
   enableSmstateen(stateenOn_);  // To activate/deactivate STATEEN CSRs.
+  enableAia(aiaEnabled_);       // To activate/deactivate AIA supervisor CSRs.
   enableSdtrig(sdtrigOn_);      // To activate/deactivate SCONTEXT.
   enableSsqosid(ssqosidOn_);    // To activate/deactivate SRMCFG.
 
@@ -2061,6 +2072,15 @@ CsRegs<URV>::enableSscofpmf(bool flag)
   else
     csr->setImplemented(flag & superEnabled_);
 
+  // MHPMEVENT3H to MHPMEVENT31H exist only with Sscofpmf.
+  if (rv32_)
+    for (unsigned i = 0; i < 29; ++i)
+      {
+        auto hcsr = findCsr(advance(CsrNumber::MHPMEVENT3H, i));
+        if (hcsr)
+          hcsr->setImplemented(flag);
+      }
+
   // Add CSR fields.
   std::vector<typename Csr<URV>::Field> hpm = {{"zero", 3}};
   for (unsigned i = 3; i <= 31; ++i)
@@ -2269,6 +2289,62 @@ CsRegs<URV>::enableSmstateen(bool flag)
 
 template <typename URV>
 void
+CsRegs<URV>::updateStateenMasks()
+{
+  using CN = CsrNumber;
+
+  // Bits of MSTATEEN0/HSTATEEN0 that control state of other extensions are writable
+  // only if the hart implements that state; otherwise they are read-only zero.
+  Mstateen0Fields managed, mbits;
+  managed.bits_.ACLIC = managed.bits_.res4 = managed.bits_.SRMCFG = managed.bits_.P1P13 = 1;
+  managed.bits_.CONTEXT = managed.bits_.IMSIC = managed.bits_.AIA = managed.bits_.CSRIND = 1;
+  managed.bits_.ENVCFG = 1;
+
+  auto implemented = [this] (CN csrn) {
+    auto csr = findCsr(csrn);
+    return csr and csr->isImplemented();
+  };
+
+  if (superEnabled_)
+    {
+      mbits.bits_.ACLIC = aclic_ or implemented(CN::SSPCS) or implemented(CN::SIJT);
+      mbits.bits_.SRMCFG = ssqosidOn_;
+      mbits.bits_.P1P13 = rv32_ and hyperEnabled_;  // HEDELEGH exists only in RV32.
+      mbits.bits_.CONTEXT = sdtrigOn_;
+      mbits.bits_.IMSIC = aiaEnabled_;
+      mbits.bits_.AIA = aiaEnabled_;
+      mbits.bits_.CSRIND = aiaEnabled_ or sscsrindOn_;
+      mbits.bits_.ENVCFG = 1;
+    }
+
+  // SRMCFG and P1P13 are reserved in HSTATEEN0.
+  Mstateen0Fields hbits(mbits.value_);
+  hbits.bits_.SRMCFG = hbits.bits_.P1P13 = 0;
+
+  auto update = [this] (CN csrn, URV mng, URV bits) {
+    auto csr = findCsr(csrn);
+    if (not csr)
+      return;
+    csr->setWriteMask((csr->getWriteMask() & ~mng) | bits);
+    csr->setPokeMask((csr->getPokeMask() & ~mng) | bits);
+    csr->pokeNoMask(csr->value() & ~(mng & ~bits));  // Clear bits now read-only-zero.
+  };
+
+  if (rv32_)
+    {
+      update(CN::MSTATEEN0H, managed.value_ >> 32, mbits.value_ >> 32);
+      update(CN::HSTATEEN0H, managed.value_ >> 32, hbits.value_ >> 32);
+    }
+  else
+    {
+      update(CN::MSTATEEN0, managed.value_, mbits.value_);
+      update(CN::HSTATEEN0, managed.value_, hbits.value_);
+    }
+}
+
+
+template <typename URV>
+void
 CsRegs<URV>::enableSsqosid(bool flag)
 {
   ssqosidOn_ = flag;
@@ -2336,17 +2412,26 @@ CsRegs<URV>::enableAia(bool flag)
   // Sscsrind owns supervisor indirect CSR access independently of Smaia.
   // If Smaia is enabled, make these CSRS implemented.
   // Even if Smaia is disabled, these CSRs are implemented if Sscsrind is enabled.
-  auto sscsrindFlag = flag or sscsrindOn_;
+  // Supervisor CSRs do not exist without supervisor mode.
+  auto sscsrindFlag = (flag or sscsrindOn_) and superEnabled_;
   for (auto csrn : { SISELECT, SIREG, SIREG2, SIREG3, SIREG4, SIREG5, SIREG6 })
     {
       auto csr = findCsr(csrn);
       csr->setImplemented(sscsrindFlag);
     }
 
-  for (auto csrn : { MTOPEI, MTOPI, MVIEN, MVIP, STOPEI, STOPI })
+  for (auto csrn : { MTOPEI, MTOPI })
     {
       auto csr = findCsr(csrn);
       csr->setImplemented(flag);
+    }
+
+  // MVIEN/MVIP and the supervisor AIA CSRs do not exist without supervisor mode.
+  bool sflag = superEnabled_ and flag;
+  for (auto csrn : { MVIEN, MVIP, STOPEI, STOPI })
+    {
+      auto csr = findCsr(csrn);
+      csr->setImplemented(sflag);
     }
 
   bool hflag = hyperEnabled_ and flag;
@@ -2369,13 +2454,19 @@ CsRegs<URV>::enableAia(bool flag)
 
   if (sizeof(URV) == 4)
     {
-      for (auto csrn : { MIDELEGH, MIEH, MVIENH, MVIPH, MIPH, SIEH, SIPH, HIDELEGH })
+      for (auto csrn : { MIEH, MIPH })
 	{
 	  auto csr = findCsr(csrn);
 	  csr->setImplemented(flag);
 	}
 
-      for (auto csrn : { HVIENH, HVIPH, HVIPRIO1H, HVIPRIO2H, VSIEH, VSIPH } )
+      for (auto csrn : { MIDELEGH, MVIENH, MVIPH, SIEH, SIPH })
+	{
+	  auto csr = findCsr(csrn);
+	  csr->setImplemented(sflag);
+	}
+
+      for (auto csrn : { HIDELEGH, HVIENH, HVIPH, HVIPRIO1H, HVIPRIO2H, VSIEH, VSIPH } )
 	{
 	  auto csr = findCsr(csrn);
 	  csr->setImplemented(hflag);
@@ -2498,6 +2589,17 @@ CsRegs<URV>::enableZicfilp(bool flag)
   mfields.bits_.SPELP = flag;
   mstatus.setWriteMask(mfields.value_);
 
+  // MPELP is bit 9 of MSTATUSH in RV32.
+  if (rv32_)
+    {
+      auto& msh = regs_.at(size_t(CN::MSTATUSH));
+      URV mpelp = URV(1) << 9;
+      if (not flag)
+        msh.write(msh.read() & ~mpelp);
+      msh.setWriteMask(flag ? (msh.getWriteMask() | mpelp) : (msh.getWriteMask() & ~mpelp));
+      msh.setPokeMask(flag ? (msh.getPokeMask() | mpelp) : (msh.getPokeMask() & ~mpelp));
+    }
+
   // Update SPELP readable/writable in SSTATUS.
   auto& sstatus = regs_.at(size_t(CN::SSTATUS));
   MstatusFields<URV> sfields{sstatus.getWriteMask()};
@@ -2559,7 +2661,7 @@ CsRegs<URV>::enableZicfiss(bool flag)
 
   auto csr = findCsr(CsrNumber::SSP);
   if (csr)
-    csr->setImplemented(true);
+    csr->setImplemented(flag);
 
   updateSsp();
 }
@@ -4484,8 +4586,9 @@ CsRegs<URV>::configMachineModePerfCounters(unsigned numCounters, bool cof)
            if (not configCsr(csrNum, true, resetValue, mask, pokeMask, shared))
              errors++;
 
+           // MHPMEVENT3H to MHPMEVENT31H exist only with Sscofpmf.
            csrNum = advance(CsrNumber::MHPMEVENT3H, i);
-           if (not configCsr(csrNum, true, resetValue, evMask >> 32, evPokeMask >> 32,
+           if (not configCsr(csrNum, cof, resetValue, evMask >> 32, evPokeMask >> 32,
                              shared))
              errors++;
          }
@@ -4799,7 +4902,9 @@ CsRegs<URV>::defineMachineRegs()
   defineCsr("mstatus", Csrn::MSTATUS, mand, imp, val, mask, pokeMask);
   if (rv32_)
     {
-      mask = 0x000007f0;
+      // SBE and MBE. Bit 8 is WPRI. GVA/MPV, MPELP, and MDT are made
+      // writable by enableHypervisorMode, enableZicfilp, and enableSmdbltrp.
+      mask = 0x00000030;
       defineCsr("mstatush", Csrn::MSTATUSH, mand, imp, 0, mask, mask);
       markHighLowPair(Csrn::MSTATUSH, Csrn::MSTATUS);
     }
@@ -4934,7 +5039,9 @@ CsRegs<URV>::defineMachineRegs()
   // Define mhpmcounter3/mhpmcounter3h to mhpmcounter31/mhpmcounter31h
   // as write-anything/read-zero (user can change that in the config
   // file by setting the number of writeable counters). Same for
-  // mhpmevent3/mhpmevent3h to mhpmevent3h/mhpmevent31h.
+  // mhpmevent3/mhpmevent3h to mhpmevent3h/mhpmevent31h. The
+  // mhpmevent3h to mhpmevent31h CSRs exist only with Sscofpmf (see
+  // enableSscofpmf).
   for (unsigned i = 3; i <= 31; ++i)
     {
       auto ctrNum = advance(CsrNumber::MHPMCOUNTER3, i - 3);
@@ -4955,7 +5062,7 @@ CsRegs<URV>::defineMachineRegs()
 
           auto hevntNum = advance(CsrNumber::MHPMEVENT3H, i - 3);
           name = "mhpmevent" + std::to_string(i) + "h";
-          defineCsr(std::move(name), hevntNum, mand, imp, 0, rom, rom);
+          defineCsr(std::move(name), hevntNum, !mand, !imp, 0, rom, rom);
 	  markHighLowPair(hevntNum, evntNum);
         }
     }
@@ -5724,10 +5831,10 @@ CsRegs<URV>::defineStateEnableRegs()
   if (sizeof(URV) == 4)
     {
       mask = URV(0b11011111111) << 21;   // 31:21
-      defineCsr("sstateen0h", CsrNumber::MSTATEEN0H,  !mand, !imp, 0, mask, mask);
-      defineCsr("sstateen1h", CsrNumber::MSTATEEN1H,  !mand, !imp, 0, 0, 0);
-      defineCsr("sstateen2h", CsrNumber::MSTATEEN2H,  !mand, !imp, 0, 0, 0);
-      defineCsr("sstateen3h", CsrNumber::MSTATEEN3H,  !mand, !imp, 0, 0, 0);
+      defineCsr("mstateen0h", CsrNumber::MSTATEEN0H,  !mand, !imp, 0, mask, mask);
+      defineCsr("mstateen1h", CsrNumber::MSTATEEN1H,  !mand, !imp, 0, 0, 0);
+      defineCsr("mstateen2h", CsrNumber::MSTATEEN2H,  !mand, !imp, 0, 0, 0);
+      defineCsr("mstateen3h", CsrNumber::MSTATEEN3H,  !mand, !imp, 0, 0, 0);
 
       defineCsr("hstateen0h", CsrNumber::HSTATEEN0H,  !mand, !imp, 0, mask, mask);
       defineCsr("hstateen1h", CsrNumber::HSTATEEN1H,  !mand, !imp, 0, 0, 0);

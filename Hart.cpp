@@ -846,6 +846,8 @@ Hart<URV>::processExtensions(bool verbose)
   enableSmijt(isa_.isEnabled(RvExtension::Smijt));
   enableSsijt(isa_.isEnabled(RvExtension::Ssijt));
 
+  csRegs_.updateStateenMasks();
+
   stimecmpActive_ = csRegs_.menvcfgStce();
   vstimecmpActive_ = csRegs_.henvcfgStce();
 }
@@ -11598,6 +11600,10 @@ Hart<URV>::execute(const DecodedInst* di)
     case InstId::lxsuwhu:
     case InstId::lxsuwwu:
       execZilx(di);
+      return;
+
+    case InstId::custom:
+      illegalInst(di);
       return;
 
     case InstId::endId_:
