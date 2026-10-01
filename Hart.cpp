@@ -11602,10 +11602,6 @@ Hart<URV>::execute(const DecodedInst* di)
       execZilx(di);
       return;
 
-    case InstId::custom:
-      illegalInst(di);
-      return;
-
     case InstId::endId_:
       assert(0 && "Error: Shouldn't be able to get here");
       return;
@@ -12626,7 +12622,8 @@ Hart<URV>::execSret(const DecodedInst* di)
   // Set ELP.
   if (isRvZicfilp())
     {
-      setElp(isLandingPadEnabled(savedMode, savedVirt)? fields.bits_.SPELP : false);
+      bool nextVirt = virtMode_ or hstatus_.bits_.SPV; // Virt mode after sret.
+      setElp(isLandingPadEnabled(savedMode, nextVirt)? fields.bits_.SPELP : false);
       fields.bits_.SPELP = 0;
     }
 
